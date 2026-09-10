@@ -1,0 +1,251 @@
+// wrapping.nv — breaking text into lines that fit a column count.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// THE PRIMITIVE IS `wrap_spans`, AND EVERYTHING ELSE IS OVER IT.  A
+// wrap that returns `[Str]` has thrown away the one thing a terminal
+// program needs: where in the original each line came from.  Text on a
+// screen is usually styled — a word in bold, a path in a colour, a
+// match highlighted — and the styling is described by offsets into the
+// source.  Wrap into new strings and every one of those offsets is now
+// wrong, so the caller either re-derives them (which is the wrap
+// again, done worse) or gives up on styling wrapped text.
+//
+// So `wrap_spans` returns `WrapSpan`s — a byte range and a width — and
+// `wrap` is `wrap_spans` plus a slice.  A caller with styled text uses
+// the first; a caller with plain text uses the second and never learns
+// the difference.
+//
+// HYPHENATION IS OFF, AND THAT IS A DECISION.  Breaking `international`
+// into `inter-` and `national` needs a language, a dictionary and a
+// set of patterns; getting it wrong produces text that is harder to
+// read than a ragged margin.  `WrapOptions.split_on_hyphens` breaks
+// after a hyphen that is already there, which is arithmetic, and that
+// is the whole of it.
+
+use widths
+
+// WrapBreak is what to do about a word that is wider than the column
+// count.
+//
+// The three answers are genuinely different programs, not a
+// preference: a paragraph of prose wants the first, a column of file
+// paths wants the second, and a log viewer that must not lose
+// characters wants the third.
+pub enum WrapBreak
+    // Break only at a break opportunity.  A word wider than the
+    // column count goes on a line of its own and overflows it.
+    WrapAtWords
+    // Break a long word at the column, mid-word.  Nothing ever
+    // overflows; a URL is cut in half.
+    WrapBreakLongWords
+    // Do not break at all: one output line per input line, however
+    // long.  For a caller that wants the widths measured and the
+    // breaking done somewhere else.
+    WrapNoBreak
+
+// WrapAlign is where a short line sits inside its width.
+//
+// Used by `pad` and by `fill_aligned`; the wrap itself does not align
+// anything, because alignment is padding and padding is not wrapping.
+pub enum WrapAlign
+    WrapAlignLeft
+    WrapAlignRight
+    WrapAlignCentre
+
+// WrapOptions is everything about a wrap except the width and the
+// width rule.
+//
+// Those two are parameters rather than fields because they change on
+// every call in the cases that matter — a terminal resize changes the
+// width and not the policy — and because a struct a caller has to
+// rebuild to change one number is a struct a caller copies wrong.
+pub struct WrapOptions
+    break_rule: WrapBreak
+    // Prepended to the first output line, and its width counts against
+    // the column count.
+    initial_indent: Str
+    // Prepended to every line after the first.  Different from
+    // `initial_indent` because that is what a bulleted list is: `"- "`
+    // then `"  "`.
+    subsequent_indent: Str
+    // Break after a hyphen that is already in the text.  Not
+    // hyphenation: nothing is inserted, and no dictionary is
+    // consulted.
+    split_on_hyphens: Bool
+    // Drop the whitespace that would have ended a wrapped line.  On by
+    // default, because trailing spaces on a terminal line are
+    // invisible until something inverts them, and then they are a
+    // ragged coloured edge.
+    trim_trailing: Bool
+    // Collapse a run of whitespace inside a line to one space.  Off by
+    // default, because it changes the text rather than only breaking
+    // it, and a caller wrapping code or a table wants it off.
+    collapse_whitespace: Bool
+
+// WrapSpan is one wrapped line, as a range of the source.
+//
+// The byte offsets are the point: styled text described by offsets
+// survives the wrap, and a caller that only wants the characters
+// slices the source itself. `width` is included because the wrap has
+// already measured it and making the caller measure again is the
+// expensive half of the work done twice.
+pub struct WrapSpan
+    // Byte offset of the first byte of the line in the source.
+    start: Int
+    // Byte offset one past the last byte, with any trimmed trailing
+    // whitespace already excluded.
+    end: Int
+    // The line's display width under the rule the wrap was given, NOT
+    // counting the indent.
+    width: Int
+    // Whether this line is the first one, which is what decides which
+    // indent applies.  A field rather than "index 0" because a caller
+    // wrapping paragraph by paragraph concatenates the lists.
+    is_first: Bool
+
+// default_options wraps at word boundaries, with no indent, trailing
+// whitespace trimmed, whitespace otherwise left alone, and no
+// hyphen splitting.
+pub fn default_options() -> WrapOptions
+    todo("textwrap-nv.wrapping.default_options")
+
+// indented_options is `default_options` with the two indents set.
+//
+// The shape a bulleted list wants — `indented_options("- ", "  ")` —
+// and the one case where a caller almost always sets both.
+pub fn indented_options(initial: Str, subsequent: Str) -> WrapOptions
+    todo("textwrap-nv.wrapping.indented_options")
+
+// wrap_spans breaks text into lines that fit `columns`, as ranges of
+// the source.
+//
+// THE PRIMITIVE.  An existing newline in the text always ends a line;
+// this function adds breaks, it does not remove them. A `columns` of
+// zero or less returns one span covering everything, because a wrap to
+// no width has no answer and an empty list would silently lose the
+// text.
+//
+// ```novo
+// use widths
+// use wrapping
+//
+// fn main() [io]
+//     let spans = wrapping.wrap_spans("the quick brown fox", 9,
+//                                     widths.monospace_width(),
+//                                     wrapping.default_options())
+//     for s in spans
+//         // The offsets are into the ORIGINAL, so a caller that had
+//         // marked "quick" as bold still knows where it is.
+//         println(str.from_int(s.start) + ".." + str.from_int(s.end))
+// ```
+pub fn wrap_spans(text: Str, columns: Int, w: widths.WrapWidth, opts: WrapOptions) -> [WrapSpan]
+    todo("textwrap-nv.wrapping.wrap_spans")
+
+// wrap is `wrap_spans` plus the slice: the lines as strings, indents
+// included.
+//
+// What most callers want, and the one that throws away the offsets. A
+// caller that is styling its text wants `wrap_spans`.
+pub fn wrap(text: Str, columns: Int, w: widths.WrapWidth, opts: WrapOptions) -> [Str]
+    todo("textwrap-nv.wrapping.wrap")
+
+// fill is `wrap` joined with newlines.
+//
+// The single call a program that is about to print a paragraph makes.
+//
+// ```novo
+// use widths
+// use wrapping
+//
+// fn main() [io]
+//     println(wrapping.fill("the quick brown fox jumps over the lazy dog", 20,
+//                           widths.monospace_width(),
+//                           wrapping.default_options()))
+// ```
+pub fn fill(text: Str, columns: Int, w: widths.WrapWidth, opts: WrapOptions) -> Str
+    todo("textwrap-nv.wrapping.fill")
+
+// wrapped_height is how many lines a wrap would produce, without
+// producing them.
+//
+// What a layout asks before it decides how much room to give a
+// paragraph — tui-nv's `render_paragraph` is the caller — and it
+// exists so that the answer does not cost a list of strings that is
+// thrown away.
+pub fn wrapped_height(text: Str, columns: Int, w: widths.WrapWidth, opts: WrapOptions) -> Int
+    todo("textwrap-nv.wrapping.wrapped_height")
+
+// truncate cuts text to `columns`, ending with `ellipsis` if anything
+// was cut.
+//
+// The ellipsis's own width counts, so the result is never wider than
+// `columns` — which is the mistake a truncation makes when it cuts to
+// the width and then appends. Text that already fits is returned
+// unchanged, ellipsis and all not appended.
+pub fn truncate(text: Str, columns: Int, w: widths.WrapWidth, ellipsis: Str) -> Str
+    todo("textwrap-nv.wrapping.truncate")
+
+// truncate_middle cuts the MIDDLE out of text, keeping both ends.
+//
+// For a path or an identifier, where the start says what kind of thing
+// it is and the end says which one — and a truncation that kept only
+// the start would produce a column of identical rows.
+pub fn truncate_middle(text: Str, columns: Int, w: widths.WrapWidth, ellipsis: Str) -> Str
+    todo("textwrap-nv.wrapping.truncate_middle")
+
+// pad puts text in a field of `columns`, aligned.
+//
+// Text wider than the field is returned unchanged rather than cut,
+// because padding and truncating are different requests and a function
+// that did both quietly would produce a table whose widest cell
+// silently lost its end. A caller that wants both calls `truncate`
+// first.
+pub fn pad(text: Str, columns: Int, w: widths.WrapWidth, align: WrapAlign) -> Str
+    todo("textwrap-nv.wrapping.pad")
+
+// fill_aligned is `fill` with every line padded to the width.
+//
+// For a caller drawing into a fixed area — a box, a table cell — where
+// short lines have to be as wide as long ones so that whatever is
+// beside them lines up.
+pub fn fill_aligned(text: Str, columns: Int, w: widths.WrapWidth, opts: WrapOptions,
+                    align: WrapAlign) -> Str
+    todo("textwrap-nv.wrapping.fill_aligned")
+
+// indent prefixes every non-empty line of text.
+//
+// Empty lines are left alone, which is what makes the result diff
+// cleanly and stops an indent from leaving trailing whitespace on
+// every blank line.
+pub fn indent(text: Str, prefix: Str) -> Str
+    todo("textwrap-nv.wrapping.indent")
+
+// dedent removes the longest whitespace prefix every non-empty line
+// shares.
+//
+// The inverse of `indent` for text that was indented by being written
+// inside something else — a heredoc, a doc comment. Empty lines do not
+// count towards the common prefix, because one blank line with no
+// indentation would otherwise make the answer nothing.
+pub fn dedent(text: Str) -> Str
+    todo("textwrap-nv.wrapping.dedent")
+
+// break_offsets is where a break is allowed, as byte offsets into the
+// text.
+//
+// The rule `wrap_spans` uses, exposed because a caller with its own
+// line-breaking — a justifier, a diff that wants to split a long line
+// at a sensible place — needs the opportunities without the wrap. A
+// space is an opportunity; so is the point after a hyphen when
+// `split_on_hyphens` is set.
+pub fn break_offsets(text: Str, opts: WrapOptions) -> [Int]
+    todo("textwrap-nv.wrapping.break_offsets")
+
+// is_break_char says whether a codepoint is one a line may break at.
+//
+// Spaces, tabs, and the Unicode space separators this package can
+// recognise without a table — not the line-breaking algorithm of
+// UAX #14, which needs one and which unicode-nv will bring.
+pub fn is_break_char(ch: Int) -> Bool
+    todo("textwrap-nv.wrapping.is_break_char")

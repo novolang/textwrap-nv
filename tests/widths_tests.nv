@@ -1,0 +1,104 @@
+// widths_tests.nv — the API suite for the width rule.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: textwrap-nv.widths.<fn>`.
+// Run with `--isolate` for one verdict per `@test`.
+//
+// WHAT THESE CASES CAN AND CANNOT ASSERT is the honest boundary of the
+// package as it stands. They assert that the placeholder rules answer
+// what they say they answer, and that `str_width` counts CODEPOINTS
+// rather than bytes — which is a real property and the one every
+// caller depends on. They do not assert that `世` is two columns
+// wide, because nothing here knows that: unicode-nv does, and it does
+// not exist. When it lands, the cases for it go in this file and none
+// of these change.
+
+use std.test
+use widths
+
+@test
+fn test_the_monospace_rule_answers_one_to_everything() [io]
+    let w = widths.monospace_width()
+
+    test.case("ASCII")
+    test.assert(widths.char_width(w, 0x41) == 1)
+
+    test.case("and everything else, which is the placeholder's whole claim")
+    test.assert(widths.char_width(w, 0x4E16) == 1)
+    test.assert(widths.char_width(w, 0x0301) == 1)
+
+@test
+fn test_the_ascii_rule_gives_nothing_to_what_it_cannot_measure() [io]
+    let w = widths.ascii_width()
+
+    test.case("printable ASCII is one column")
+    test.assert(widths.char_width(w, 0x41) == 1)
+    test.assert(widths.char_width(w, 0x20) == 1)
+
+    test.case("a control byte takes no space rather than one")
+    test.assert(widths.char_width(w, 0x07) == 0)
+
+    test.case("and so does everything above 126, which is only right if there is none")
+    test.assert(widths.char_width(w, 0x4E16) == 0)
+
+@test
+fn test_a_fixed_rule_measures_in_whatever_the_caller_is_measuring_in() [io]
+    let w = widths.fixed_width(8)
+
+    test.case("every codepoint is the same number")
+    test.assert(widths.char_width(w, 0x41) == 8)
+    test.assert(widths.char_width(w, 0x4E16) == 8)
+
+@test
+fn test_a_negative_answer_is_clamped_rather_than_believed() [io]
+    // A rule a caller wrote badly should make text too long, not
+    // negative — the first is visible on the screen and the second is
+    // an index out of range somewhere else.
+    let w = widths.fixed_width(0 - 3)
+
+    test.case("no codepoint is narrower than nothing")
+    test.assert(widths.char_width(w, 0x41) == 0)
+
+@test
+fn test_a_strings_width_counts_codepoints_and_not_bytes() [io]
+    let w = widths.monospace_width()
+
+    test.case("ASCII agrees with anyone's intuition")
+    test.assert(widths.str_width(w, "abc") == 3)
+
+    test.case("and a two-byte codepoint is one column, which str.len is not")
+    test.assert(widths.str_width(w, "é") == 1)
+
+    test.case("nothing is nothing")
+    test.assert(widths.str_width(w, "") == 0)
+
+@test
+fn test_a_prefix_can_be_measured_without_measuring_the_whole() [io]
+    let w = widths.monospace_width()
+
+    test.case("the first two codepoints")
+    test.assert(widths.prefix_width(w, "abcdef", 2) == 2)
+
+    test.case("none of them")
+    test.assert(widths.prefix_width(w, "abcdef", 0) == 0)
+
+    test.case("and more than there are is all of them rather than an error")
+    test.assert(widths.prefix_width(w, "abc", 99) == 3)
+
+@test
+fn test_fitting_a_prefix_answers_in_bytes() [io]
+    // A byte count, because that is what a caller slicing the string
+    // needs — and the two differ for every string that is not ASCII.
+    let w = widths.monospace_width()
+
+    test.case("four ASCII columns are four bytes")
+    test.assert(widths.fit_prefix(w, "abcdef", 4) == 4)
+
+    test.case("a two-byte codepoint that fits contributes two bytes")
+    test.assert(widths.fit_prefix(w, "ébc", 2) == 3)
+
+    test.case("nothing fits in no columns")
+    test.assert(widths.fit_prefix(w, "abc", 0) == 0)
+
+    test.case("and everything fits in more columns than there are")
+    test.assert(widths.fit_prefix(w, "abc", 99) == 3)

@@ -1,0 +1,261 @@
+// wrapping_tests.nv — the API suite for the wrap, the fill and the
+// truncation.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: textwrap-nv.<module>.<fn>`.
+// Run with `--isolate` for one verdict per `@test`.
+//
+// EVERY CASE FIXES A WIDTH RULE, which is the property the package is
+// for: `monospace_width()` makes the answers exact and repeatable, and
+// a case whose answer depended on a Unicode table nobody has written
+// would be a case that cannot be asserted. When unicode-nv lands, the
+// cases that need it get a rule of their own and these keep their
+// answers.
+
+use std.test
+use std.list
+use std.str
+use widths
+use wrapping
+
+// The rule every case here measures with, named once so that a reader
+// can see there is only one.
+fn mono() -> widths.WrapWidth
+    widths.monospace_width()
+
+@test
+fn test_a_line_that_fits_is_one_line() [io]
+    let out = wrapping.wrap("short", 20, mono(), wrapping.default_options())
+
+    test.case("nothing to break")
+    test.assert(list.len(out) == 1)
+    test.assert(list.get(out, 0) == "short")
+
+@test
+fn test_a_wrap_breaks_at_a_word_boundary() [io]
+    let out = wrapping.wrap("the quick brown fox", 9, mono(),
+                            wrapping.default_options())
+
+    test.case("three lines, none wider than nine columns")
+    test.assert(list.len(out) == 3)
+    for line in out
+        test.assert(widths.str_width(mono(), line) <= 9)
+
+    test.case("and the words are whole")
+    test.assert(list.get(out, 0) == "the quick")
+
+@test
+fn test_the_spans_point_back_into_the_source() [io]
+    // The load-bearing property: styled text described by offsets
+    // survives the wrap.
+    let text = "the quick brown fox"
+    let spans = wrapping.wrap_spans(text, 9, mono(), wrapping.default_options())
+
+    test.case("three spans")
+    test.assert(list.len(spans) == 3)
+
+    test.case("the first starts at the beginning")
+    let first = list.get(spans, 0)
+    test.assert(first.start == 0)
+    test.assert(first.is_first)
+
+    test.case("and every later span starts after the one before it")
+    var previous = first.end
+    for s in list.slice(spans, 1, list.len(spans))
+        test.assert(s.start >= previous)
+        test.assert(s.is_first == false)
+        previous = s.end
+
+    test.case("with the widths already measured")
+    test.assert(first.width == 9)
+
+@test
+fn test_the_trailing_space_is_not_part_of_the_span() [io]
+    // Trailing spaces on a terminal line are invisible until something
+    // inverts them, and then they are a ragged coloured edge.
+    let spans = wrapping.wrap_spans("aaa bbb", 3, mono(), wrapping.default_options())
+
+    test.case("the first span stops at the last letter")
+    test.assert(list.get(spans, 0).end == 3)
+
+@test
+fn test_a_long_word_overflows_or_breaks_depending_on_the_policy() [io]
+    let url = "https://novo-lang.org/packages"
+
+    test.case("at word boundaries, a long word overflows its line")
+    var opts = wrapping.default_options()
+    let overflowing = wrapping.wrap(url, 10, mono(), opts)
+    test.assert(list.len(overflowing) == 1)
+    test.assert(widths.str_width(mono(), list.get(overflowing, 0)) > 10)
+
+    test.case("breaking long words, nothing overflows")
+    opts.break_rule = WrapBreakLongWords
+    for line in wrapping.wrap(url, 10, mono(), opts)
+        test.assert(widths.str_width(mono(), line) <= 10)
+
+    test.case("and not breaking at all gives one line per input line")
+    opts.break_rule = WrapNoBreak
+    test.assert(list.len(wrapping.wrap(url, 10, mono(), opts)) == 1)
+
+@test
+fn test_an_existing_newline_always_ends_a_line() [io]
+    // The wrap adds breaks; it does not remove them.
+    let out = wrapping.wrap("a\nb", 80, mono(), wrapping.default_options())
+
+    test.case("two lines, though both would have fitted on one")
+    test.assert(list.len(out) == 2)
+
+@test
+fn test_the_two_indents_differ_on_the_first_line() [io]
+    // Which is what a bulleted list is.
+    let opts = wrapping.indented_options("- ", "  ")
+    let out = wrapping.wrap("alpha beta gamma", 10, mono(), opts)
+
+    test.case("the first line carries the bullet")
+    test.assert(str.starts_with(list.get(out, 0), "- "))
+
+    test.case("and the rest carry the alignment")
+    test.assert(str.starts_with(list.get(out, 1), "  "))
+
+    test.case("with the indent counting against the width")
+    for line in out
+        test.assert(widths.str_width(mono(), line) <= 10)
+
+@test
+fn test_a_hyphen_is_a_break_opportunity_only_when_asked() [io]
+    var opts = wrapping.default_options()
+
+    test.case("off by default, so a hyphenated word stays whole")
+    test.assert(list.len(wrapping.wrap("well-behaved", 8, mono(), opts)) == 1)
+
+    test.case("on, the break goes after the hyphen that is already there")
+    opts.split_on_hyphens = true
+    let out = wrapping.wrap("well-behaved", 8, mono(), opts)
+    test.assert(list.len(out) == 2)
+    test.assert(list.get(out, 0) == "well-")
+
+@test
+fn test_a_width_of_zero_returns_the_text_rather_than_nothing() [io]
+    // An empty list would silently lose the text, which is the worst
+    // available answer.
+    let out = wrapping.wrap("anything", 0, mono(), wrapping.default_options())
+
+    test.case("one line, the whole of it")
+    test.assert(list.len(out) == 1)
+    test.assert(list.get(out, 0) == "anything")
+
+@test
+fn test_the_height_is_answerable_without_the_lines() [io]
+    let text = "the quick brown fox jumps over the lazy dog"
+    let opts = wrapping.default_options()
+
+    test.case("the count agrees with the wrap")
+    test.assert(wrapping.wrapped_height(text, 12, mono(), opts)
+                == list.len(wrapping.wrap(text, 12, mono(), opts)))
+
+@test
+fn test_a_fill_is_the_wrap_joined() [io]
+    let text = "alpha beta gamma delta"
+    let opts = wrapping.default_options()
+
+    test.case("the filled text has one newline fewer than it has lines")
+    let lines = wrapping.wrap(text, 11, mono(), opts)
+    let filled = wrapping.fill(text, 11, mono(), opts)
+    test.assert(list.len(str.split(filled, "\n")) == list.len(lines))
+
+@test
+fn test_a_truncation_counts_its_own_ellipsis() [io]
+    // The mistake: cut to the width, then append — and the result is
+    // one column too wide, every time.
+    let long = "abcdefghij"
+
+    test.case("the result fits the width, ellipsis included")
+    let cut = wrapping.truncate(long, 6, mono(), "...")
+    test.assert(widths.str_width(mono(), cut) <= 6)
+    test.assert(str.ends_with(cut, "..."))
+
+    test.case("and text that already fits is untouched")
+    test.assert(wrapping.truncate("abc", 6, mono(), "...") == "abc")
+
+@test
+fn test_a_middle_truncation_keeps_both_ends() [io]
+    // A column of paths truncated at the end is a column of identical
+    // rows.
+    let path = "/home/novo/projects/deep/file.nv"
+    let cut = wrapping.truncate_middle(path, 20, mono(), "...")
+
+    test.case("it fits")
+    test.assert(widths.str_width(mono(), cut) <= 20)
+
+    test.case("the start survives")
+    test.assert(str.starts_with(cut, "/"))
+
+    test.case("and so does the end, which is the half that says which file")
+    test.assert(str.ends_with(cut, "file.nv"))
+
+@test
+fn test_padding_never_truncates() [io]
+    // Padding and truncating are different requests, and a function
+    // that did both quietly would lose the end of the widest cell in a
+    // table.
+    test.case("a short string is padded to the field")
+    test.assert(widths.str_width(mono(), wrapping.pad("ab", 6, mono(), WrapAlignLeft)) == 6)
+
+    test.case("and a long one comes back unchanged")
+    test.assert(wrapping.pad("abcdefgh", 6, mono(), WrapAlignLeft) == "abcdefgh")
+
+@test
+fn test_the_three_alignments_put_the_text_in_three_places() [io]
+    test.case("left")
+    test.assert(str.starts_with(wrapping.pad("ab", 6, mono(), WrapAlignLeft), "ab"))
+
+    test.case("right")
+    test.assert(str.ends_with(wrapping.pad("ab", 6, mono(), WrapAlignRight), "ab"))
+
+    test.case("and centre, which is still six columns wide")
+    test.assert(widths.str_width(mono(), wrapping.pad("ab", 6, mono(), WrapAlignCentre)) == 6)
+
+@test
+fn test_indent_leaves_blank_lines_blank() [io]
+    // So that the result diffs cleanly and no blank line grows
+    // trailing whitespace.
+    let out = wrapping.indent("a\n\nb", "  ")
+
+    test.case("the middle line is still empty")
+    test.assert(list.get(str.split(out, "\n"), 1) == "")
+
+@test
+fn test_dedent_removes_what_every_line_shares() [io]
+    test.case("the common prefix goes")
+    test.assert(wrapping.dedent("    a\n    b") == "a\nb")
+
+    test.case("and only the common part of an uneven indent")
+    test.assert(wrapping.dedent("  a\n    b") == "a\n  b")
+
+    test.case("a blank line does not make the common prefix nothing")
+    test.assert(wrapping.dedent("  a\n\n  b") == "a\n\nb")
+
+@test
+fn test_the_break_opportunities_are_available_on_their_own() [io]
+    // For a justifier, or a diff that wants to split a long line
+    // somewhere sensible.
+    let offsets = wrapping.break_offsets("a b c", wrapping.default_options())
+
+    test.case("two spaces, two opportunities")
+    test.assert(list.len(offsets) == 2)
+
+    test.case("and the rule agrees with itself")
+    test.assert(wrapping.is_break_char(0x20))
+    test.assert(wrapping.is_break_char(0x09))
+    test.assert(wrapping.is_break_char(0x61) == false)
+
+@test
+fn test_a_filled_and_aligned_block_is_a_rectangle() [io]
+    // What a caller drawing into a box needs: every line as wide as
+    // the widest, so whatever is beside it lines up.
+    let out = wrapping.fill_aligned("alpha beta gamma", 8, mono(),
+                                    wrapping.default_options(), WrapAlignLeft)
+
+    test.case("every line is exactly the width")
+    for line in str.split(out, "\n")
+        test.assert(widths.str_width(mono(), line) == 8)

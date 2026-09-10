@@ -1,0 +1,110 @@
+// widths.nv — how many columns a codepoint occupies, as a rule the
+// caller supplies.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// WRAPPING IS ABOUT COLUMNS, NOT CHARACTERS.  A monospace terminal
+// gives one cell to most codepoints, two to a CJK ideograph or a
+// wide-presentation emoji, and NONE to a combining mark — so "how many
+// characters fit in 80 columns" has no answer and "how many columns
+// does this text take" has one.  Every function in `wrapping` is
+// written in terms of that answer and none of them can compute it.
+//
+// THE ANSWER IS A UNICODE TABLE.  UAX #11's East Asian Width property
+// for the wide forms, the general categories Mn, Me and Cf for the
+// zero-width ones, and the emoji presentation rules for the sequences
+// that join.  That is a data table nobody should transcribe twice, and
+// it belongs in unicode-nv — which does not exist yet.
+//
+// SO THE RULE IS A PARAMETER.  A `WrapWidth` is one function from a
+// codepoint to a column count, `monospace_width()` is the placeholder
+// that answers 1 to everything, and when unicode-nv lands its width
+// function becomes the default with no change to any signature here.
+// That is the whole reason the width is a value rather than something
+// this package computes: a package that had guessed would have to
+// break its callers to stop guessing.
+
+// WrapWidth is a rule for the display width of one codepoint.
+//
+// A struct around one function rather than a bare function type, so
+// that the rule has a name a reader can look up, and so that a future
+// rule with more to it — a tab stop, an ambiguous-width setting for a
+// terminal configured East Asian — is a field rather than a second
+// parameter threaded through every function in the package.
+pub struct WrapWidth
+    // Columns for one codepoint.  0 for a combining mark, 2 for a wide
+    // character, 1 for the rest.  A negative answer is not meaningful
+    // and every function here treats one as 0.
+    of_char: fn(Int) -> Int
+
+// monospace_width answers 1 for every codepoint.
+//
+// The placeholder until unicode-nv lands, and correct for text that is
+// entirely ASCII — which is most of what a command-line program wraps.
+// It is wrong for CJK, for combining marks and for emoji, and the
+// wrongness is visible: a wrapped line comes out too long rather than
+// too short, so the failure shows on the screen rather than hiding.
+pub fn monospace_width() -> WrapWidth
+    todo("textwrap-nv.widths.monospace_width")
+
+// ascii_width answers 1 for a printable ASCII codepoint and 0 for
+// everything else.
+//
+// For text that is known ASCII and where a stray control byte should
+// take no space rather than one — a log line, a filename. It is not a
+// substitute for the Unicode rule and does not pretend to be: every
+// codepoint above 126 measures 0, which is only right if there are
+// none.
+pub fn ascii_width() -> WrapWidth
+    todo("textwrap-nv.widths.ascii_width")
+
+// fixed_width answers the same number for every codepoint.
+//
+// For a caller measuring in something other than terminal cells — a
+// proportional font's average advance, a fixed pixel grid. It is here
+// because the alternative is that such a caller writes a `WrapWidth`
+// by hand, and a function it can call reads better at the call site.
+pub fn fixed_width(columns: Int) -> WrapWidth
+    todo("textwrap-nv.widths.fixed_width")
+
+// char_width is one codepoint's width under a rule, with a negative
+// answer clamped to 0.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.monospace_width()
+//     println(str.from_int(widths.char_width(w, 0x41)))     // 1
+// ```
+pub fn char_width(w: WrapWidth, ch: Int) -> Int
+    todo("textwrap-nv.widths.char_width")
+
+// str_width is a whole string's width under a rule.
+//
+// The function a caller reaches for most often — how wide is this, so
+// that a table column or a status bar can be sized. It counts
+// codepoints, so a two-byte `é` measures 1 and a two-column `世`
+// measures 2, which is exactly the difference between this and
+// `str.len`.
+pub fn str_width(w: WrapWidth, text: Str) -> Int
+    todo("textwrap-nv.widths.str_width")
+
+// prefix_width is the width of the first `count` codepoints.
+//
+// For a caller walking text it is styling: it needs to know where in
+// columns it has got to, without measuring the whole string again at
+// every step.
+pub fn prefix_width(w: WrapWidth, text: Str, count: Int) -> Int
+    todo("textwrap-nv.widths.prefix_width")
+
+// fit_prefix is how many BYTES of `text` fit in `columns`.
+//
+// A byte count rather than a codepoint count because that is what a
+// caller slicing the string needs, and because the two differ for
+// every string that is not ASCII. A codepoint that would straddle the
+// edge is left out entirely — a wide character with one column left
+// does not half-fit — which is what stops a truncation from producing
+// a line one column too long.
+pub fn fit_prefix(w: WrapWidth, text: Str, columns: Int) -> Int
+    todo("textwrap-nv.widths.fit_prefix")
