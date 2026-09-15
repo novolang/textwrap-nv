@@ -5,6 +5,11 @@ All notable changes to textwrap-nv are recorded here. The format is
 package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 with the pre-1.0 rule that a breaking change bumps the MINOR number.
 
+## 0.0.2 — 2026-09-15
+
+README rewritten to the package README style guide
+(docs/writing-a-readme.md); no change to the interface.
+
 ## 0.0.1 — 2026-09-10
 
 The **interface**: every signature and every effect row, and no bodies.
@@ -38,3 +43,21 @@ The **interface**: every signature and every effect row, and no bodies.
   hyphen already in the text.
 - **No `@tier(embedded)` claim.** The whole surface is `Str`, and `Str`
   concatenation is refused at that tier. A device does not wrap prose.
+
+### Design notes
+
+Public type and variant names are unique across a whole program, so a
+package's names have to be unique across the registry too. `Line` is
+declared by gof-patterns, and `Span`, `Options`, `Break`, `Align`,
+`Left` and `Right` are names several packages would each want. Enum
+variants collide by their bare name, which is why the variants carry the
+`Wrap` prefix. The modules are `wrapping` and `widths` rather than
+`wrap`, `width` or `text`, because a module may not be named after a
+standard-library one and the singular forms would shadow the functions
+inside them.
+
+`WrapWidth` is a struct around one function rather than a bare function
+type, so that the rule has a name a reader can look up, and so that a
+future rule with more to it — a tab stop, an ambiguous-width setting for
+a terminal configured East Asian — becomes a field rather than a second
+parameter threaded through every function.
