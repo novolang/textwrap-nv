@@ -200,7 +200,7 @@ or a status bar is this question and not a wrap.
   what let a caller wrap the plain text and re-apply the styling.
 - **A microcontroller build.** The whole surface takes and returns
   `Str`, and string concatenation is refused at the embedded tier. This
-  package makes no device claim.
+  package does not build for a microcontroller with no heap allocator.
 
 ## Related packages
 
