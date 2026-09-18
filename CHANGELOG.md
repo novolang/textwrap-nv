@@ -5,6 +5,91 @@ All notable changes to textwrap-nv are recorded here. The format is
 package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 with the pre-1.0 rule that a breaking change bumps the MINOR number.
 
+## 0.1.0 — 2026-09-18
+
+The wrap, the fill, the truncations and the two indent functions, over a
+display width the caller names.
+
+- `wrap_spans` is the primitive and everything else is written over it.
+  It answers a byte range and a measured width per line, so text
+  described by offsets into the source — a word in bold, a match
+  highlighted — survives the wrap. `wrap` is that plus a slice, `fill`
+  is `wrap` joined, and `wrapped_height` is the count a layout asks for
+  before it decides how tall to make a box.
+- The wrap is greedy: as many words on a line as fit, and a break
+  before the first one that does not. That is what Python's `textwrap`
+  module and the `textwrap` crate both do by default, and both were the
+  oracle for the expected output.
+- The whitespace a line was broken at belongs to the line before it,
+  and `trim_trailing` drops it. The whitespace an input line starts
+  with is that line's own indentation and is kept, so wrapped code and
+  wrapped tables keep their shape.
+- `collapse_whitespace` is acted on by `wrap`, `fill`, `fill_aligned`
+  and `wrapped_height`, and not by `wrap_spans`. A span is a range of
+  the text it was given and no range can stand for a run of three
+  spaces rewritten as one, so the functions that build strings collapse
+  the text and wrap the result. The README says so where a reader will
+  look for it.
+- The three break policies behave as their names say. A word wider than
+  the line overflows under `WrapAtWords`, is cut at the column under
+  `WrapBreakLongWords`, and is left whole under `WrapNoBreak`. A cut
+  that would fit nothing still takes one codepoint, because a cut that
+  fitted nothing would go round again.
+- `truncate` counts its own ellipsis and `truncate_middle` keeps both
+  ends, with the odd column going to the end. An ellipsis at least as
+  wide as the field leaves no room for text, and the answer is then the
+  text cut to the field with no ellipsis.
+- `indent` and `dedent` follow Python's `textwrap`: a line with no
+  character other than whitespace is left alone by the first and
+  answered empty by the second, and does not count towards the common
+  prefix.
+- `is_break_char` is the ASCII whitespace and the Unicode space
+  separators, less the three a line may not be broken at — U+00A0,
+  U+2007 and U+202F — and plus U+200B, which occupies no cell and
+  exists to mark a break.
+- Text is walked by codepoint. A UTF-8 lead byte whose continuation
+  bytes are not there measures as one codepoint rather than swallowing
+  what follows it, which is the rule `str.chars` follows and what keeps
+  a walk over arbitrary bytes finite.
+
+### Added
+
+- `widths.unicode_width()`, the display width of UAX #11, from
+  unicode-nv's table. It is one line over `uwidth.char_width`, which is
+  the `fn(Int) -> Int` a `WrapWidth` holds, and no signature published
+  at 0.0.2 is shaped by it.
+- `unicode-nv = "^0.1.0"` in `[dependencies]`, which 0.0.1 recorded as
+  the entry to add when that package landed. It costs no effect row and
+  no tier: the package reports `wasm, app` with it and without it.
+
+### Changed
+
+- Every field of `WrapOptions` is declared `var`. The shape a caller
+  writes is `default_options()` with one field set, and a field
+  assigned to must be declared that way from novo 0.9.1 onwards
+  (`E2034`).
+- `novo = ">= 0.9.1"`, which is the oldest toolchain these bytes were
+  built and tested on, and the oldest that carries the rule above.
+- Two cases in `tests/wrapping_tests.nv` expected three lines from
+  `"the quick brown fox"` at nine columns. Both reference
+  implementations answer two — `"the quick"` and `"brown fox"` are nine
+  columns each — and the cases now assert that, with the second line's
+  text as well.
+
+### Known
+
+- **Widths are per codepoint, not per grapheme cluster.** A flag is two
+  regional indicators and a family emoji is several pictographs joined
+  by a zero-width joiner, and a terminal places each of those in the
+  cells the first one asked for. unicode-nv's `uwidth.text_width`
+  segments and gets them right; a `WrapWidth` takes one codepoint and
+  cannot.
+- **`novo build <file>` does not resolve the package's dependency**, so
+  the allocation scan reads `_novo/textwrap-nv.ll`, which `novo test`
+  writes from a build that does. A qualified reference to a dependency
+  module's function under that build is an internal compiler error, and
+  is filed against the toolchain.
+
 ## 0.0.2 — 2026-09-15
 
 README rewritten to the package README style guide

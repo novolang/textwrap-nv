@@ -1,13 +1,17 @@
 [package]
 name        = "textwrap-nv"
-version     = "0.0.2"
-description = "Wrapping, filling and truncating text at a DISPLAY width rather than a character count: the break policy as a named choice, indents that differ on the first line, an ellipsis that fits, and the wrap returning byte offsets so styled text survives it.  The width of a codepoint arrives as a rule the caller supplies, because unicode-nv is not on the registry yet."
+version     = "0.1.0"
+description = "Wrapping, filling and truncating text at a display width rather than a character count: the break policy as a named choice, indents that differ on the first line, an ellipsis that counts itself, and a wrap that answers byte offsets so styled text survives it.  The width of a codepoint is unicode-nv's UAX #11 table, or any other rule the caller hands in."
 license     = "Apache-2.0"
 
-stability   = "draft"
+# `experimental` because no program outside this repository has used
+# the package yet, and the tests were written against the signatures
+# rather than by a consumer.
+stability   = "experimental"
 
 # `core`: text in, text out, and the one thing that is not arithmetic —
-# how many columns a codepoint occupies — arrives as an argument.
+# how many columns a codepoint occupies — arrives as an argument.  No
+# function declares an effect.
 layer       = "core"
 
 category    = "terminal"
@@ -15,6 +19,10 @@ category    = "terminal"
 tags        = ["textwrap", "wrap", "fill", "truncate", "word-wrap", "display-width", "terminal", "unicode"]
 repository  = "https://github.com/novolang/textwrap-nv"
 maintainers = ["novo-lang"]
+# The oldest released `novo` there is evidence for, which is the one
+# that built and tested these bytes.  It is also the oldest that
+# enforces the field-mutability rule this package's `var` fields are
+# written to.
 novo        = ">= 0.9.1"
 
 # A library: no `main`, so `novo pkg build` type-checks and
@@ -31,4 +39,9 @@ novo        = ">= 0.9.1"
 # the `fn(Int) -> Int` a `WrapWidth` holds, so `widths.unicode_width()`
 # is one line over it and no signature here is shaped by the
 # dependency.
+#
+# It costs no effect row and no tier: the table is a constant searched
+# by `str.byte_at_or`, and this package reports the same `wasm, app` it
+# reports without it.  A caller whose text is ASCII keeps reaching for
+# `monospace_width()`, which touches no table at all.
 unicode-nv = "^0.1.0"

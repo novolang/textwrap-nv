@@ -9,12 +9,6 @@ number of characters in it. The shape of the interface follows
 [tui-nv](https://novo-lang.org/packages/tui-nv) is built on it and uses
 it for the paragraph widget.
 
-**Status: NOT IMPLEMENTED — interface only.** Every function is declared
-with its full signature, but every body is a `todo()` that panics when
-called. The package is published so its design can be reviewed and
-depended on before it is implemented. Version 0.1.0 will be the first
-working release.
-
 ## What it is
 
 A monospace terminal is a grid of cells. Most characters occupy one
@@ -44,25 +38,27 @@ of strings would throw those offsets away, and the caller would have to
 recover them by doing the wrap again. `wrap` and `fill` are `wrap_spans`
 plus a slice, for a caller whose text is not styled.
 
-One thing this package cannot compute is the display width itself. That
-is a Unicode table: the East Asian Width property of
-[UAX #11](https://www.unicode.org/reports/tr11/) for the wide forms, the
-general categories Mn, Me and Cf for the zero-width ones, and the emoji
-presentation rules for the sequences that join. The table belongs in a
-Unicode package, and there is not one on the registry yet. So the rule
-arrives as an argument: a `WrapWidth` is a function from a codepoint to
-a column count, and three of them can be written without a table.
+The display width itself is a Unicode table: the East Asian Width
+property of [UAX #11](https://www.unicode.org/reports/tr11/) for the
+wide forms, the general categories Mn, Me and Cf for the zero-width
+ones, and the emoji presentation rules for the sequences that join. That
+table lives in
+[unicode-nv](https://novo-lang.org/packages/unicode-nv). This package
+takes the rule as an argument, a `WrapWidth`, which is one function from
+a codepoint to a column count. Four of them are ready to pass.
 
 | Rule | Answers |
 | --- | --- |
+| `unicode_width()` | UAX #11: 0 for a combining mark, 2 for a wide or fullwidth form, 1 otherwise |
 | `monospace_width()` | 1 for every codepoint |
 | `ascii_width()` | 1 for a printable ASCII codepoint, 0 for everything else |
 | `fixed_width(n)` | `n` for every codepoint |
 
+`unicode_width` is the one a terminal is written against.
 `monospace_width` is correct for text that is entirely ASCII, which is
-most of what a command-line program wraps. Where it is wrong, the
-wrapped line comes out too long rather than too short, so the error is
-visible on the screen.
+most of what a command-line program wraps, and it touches no table.
+Where it is wrong, the wrapped line comes out too long rather than too
+short, so the error is visible on the screen.
 
 ## Install
 
@@ -79,7 +75,7 @@ use wrapping
 
 fn main() [io]
     let text = "the quick brown fox jumps over the lazy dog"
-    let rule = widths.monospace_width()
+    let rule = widths.unicode_width()
 
     // Wrap to twenty columns and join the lines back into one string.
     println(wrapping.fill(text, 20, rule, wrapping.default_options()))
@@ -101,16 +97,13 @@ fn main() [io]
                                                  wrapping.default_options())))
 ```
 
-Build and test with `novo pkg build` and `novo test`. Today `novo test`
-fails on purpose: every test reaches a
-`not implemented: textwrap-nv.<module>.<fn>` panic. The tests are the
-specification the implementation will have to satisfy.
+Build and test with `novo pkg build` and `novo test`.
 
 ## What the package contains
 
 | Module | Contents |
 | --- | --- |
-| `widths` | The display-width rule as a value, the three rules that need no Unicode table, and the measurements taken with one: a codepoint, a whole string, a prefix, and how many bytes fit in a given number of columns. |
+| `widths` | The display-width rule as a value, the four rules ready to pass, and the measurements taken with one: a codepoint, a whole string, a prefix, and how many bytes fit in a given number of columns. |
 | `wrapping` | The wrap and everything over it: the options, the three break policies, the span, `wrap`, `fill`, `fill_aligned`, the height, the two truncations, padding, indent and dedent, and the break opportunities on their own. |
 
 ## How to choose an entry point
@@ -137,61 +130,100 @@ or a status bar is this question and not a wrap.
 
 1. **The width rule is an argument, and `monospace_width` is not the
    Unicode answer.** It answers 1 for every codepoint, including
-   ideographs, emoji and combining marks. A caller that has a correct
-   width function passes it.
-2. **`WrapSpan.start` and `.end` are byte offsets into the source.**
+   ideographs, emoji and combining marks. `unicode_width` is the
+   Unicode answer, from UAX #11.
+2. **`unicode_width` answers 1 for the ambiguous class.** A terminal
+   configured for a CJK locale draws the Greek and Cyrillic letters two
+   cells wide and every other terminal draws them one. Only the program
+   knows which terminal it is talking to, so a program that knows it is
+   the first passes
+   `WrapWidth { of_char: uwidth.char_width_cjk }` instead.
+3. **`WrapSpan.start` and `.end` are byte offsets into the source.**
    `end` is one past the last byte, with trimmed trailing whitespace
    already excluded.
-3. **`WrapSpan.width` does not count the indent.** The indent's width
+4. **`WrapSpan.width` does not count the indent.** The indent's width
    does count against the column count during the wrap.
-4. **A newline already in the text always ends a line.** `wrap_spans`
+5. **A newline already in the text always ends a line.** `wrap_spans`
    adds breaks. It never removes one.
-5. **A `columns` of zero or less answers one span covering
+6. **A `columns` of zero or less answers one span covering
    everything.** A wrap to no width has no answer, and an empty list
    would lose the text silently.
-6. **The break policy decides what happens to a word wider than the
+7. **The break policy decides what happens to a word wider than the
    line.** `WrapAtWords` puts it on a line of its own and lets it
    overflow. `WrapBreakLongWords` cuts it at the column. `WrapNoBreak`
    does not break at all and gives one output line per input line.
-7. **`initial_indent` and `subsequent_indent` are different fields
-   because a bulleted list needs both.** `indented_options("- ", "  ")`
-   is that shape.
-8. **`truncate` counts its own ellipsis.** The result is never wider
-   than `columns`. Text that already fits is returned unchanged, with no
-   ellipsis appended.
-9. **`truncate_middle` keeps both ends.** For a path or an identifier,
-   the start says what kind of thing it is and the end says which one.
-10. **`pad` never truncates.** Text wider than the field is returned
+8. **The wrap is greedy.** It puts as many words on a line as fit and
+   breaks before the first one that does not, which is what both
+   reference implementations do by default.
+9. **The whitespace a line was broken at belongs to the line before
+   it.** `trim_trailing` is on by default and drops it, because
+   trailing spaces on a terminal line are invisible until something
+   inverts them.
+10. **The whitespace an input line starts with is kept.** It is the
+    line's own indentation and not a break, so wrapped code and wrapped
+    tables keep their shape.
+11. **`collapse_whitespace` is off by default, and `wrap_spans` does
+    not act on it.** A span is a range of the text it was given, and no
+    range can stand for a run of three spaces rewritten as one. `wrap`,
+    `fill`, `fill_aligned` and `wrapped_height` collapse the text and
+    wrap the result.
+12. **`initial_indent` and `subsequent_indent` are different fields
+    because a bulleted list needs both.** `indented_options("- ", "  ")`
+    is that shape.
+13. **`truncate` counts its own ellipsis.** The result is never wider
+    than `columns`. Text that already fits is returned unchanged, with
+    no ellipsis appended. An ellipsis at least as wide as `columns`
+    leaves no room for text, and the answer is then the text cut to
+    `columns` with no ellipsis at all.
+14. **`truncate_middle` keeps both ends.** For a path or an identifier,
+    the start says what kind of thing it is and the end says which one.
+    The end gets the odd column when the room left does not halve
+    evenly.
+15. **`pad` never truncates.** Text wider than the field is returned
     unchanged. A caller that wants both calls `truncate` first.
-11. **`widths.fit_prefix` answers a byte count, not a codepoint
+16. **`widths.fit_prefix` answers a byte count, not a codepoint
     count.** A codepoint that would straddle the edge is left out
     entirely, so a wide character with one column left does not half
     fit.
-12. **`indent` leaves empty lines alone**, so the result diffs cleanly
-    and no blank line gains trailing whitespace. `dedent` ignores empty
-    lines when it looks for the common prefix, for the same reason.
-13. **`split_on_hyphens` is not hyphenation.** It breaks after a hyphen
+17. **`indent` leaves blank lines alone**, so the result diffs cleanly
+    and no blank line gains trailing whitespace. `dedent` ignores them
+    when it looks for the common prefix and answers them empty. A line
+    with no character other than whitespace counts as blank for both,
+    which is Python's rule.
+18. **`split_on_hyphens` is not hyphenation.** It breaks after a hyphen
     that is already in the text. Nothing is inserted and no dictionary
     is consulted.
-14. **`is_break_char` knows about spaces and tabs.** It is not the line
+19. **`break_offsets` answers one offset per opportunity.** A break
+    character contributes its own offset, and a hyphen contributes the
+    offset just after it. A run of three spaces is three
+    opportunities.
+20. **`is_break_char` knows about spaces and tabs.** It is not the line
     breaking algorithm of
     [UAX #14](https://www.unicode.org/reports/tr14/), which needs the
-    same table the width rule stands in for.
-15. **`trim_trailing` is on by default and `collapse_whitespace` is
-    off.** Trailing spaces on a terminal line are invisible until
-    something inverts them. Collapsing runs of whitespace changes the
-    text rather than only breaking it, which a caller wrapping code or a
-    table does not want.
+    same table the width rule comes from. The spaces a line may not be
+    broken at — U+00A0, U+2007 and U+202F — answer false.
+21. **Text that is not valid UTF-8 is walked one byte at a time.** A
+    lead byte whose continuation bytes are not there measures as one
+    codepoint rather than swallowing what follows it, so a scan over
+    arbitrary bytes terminates and reports something.
 
 ## What is not included
 
-- **The Unicode width table.** See "What it is". A package for it will
-  bring the rule that becomes the default, and no signature here will
-  change, because a rule passed in is a rule passed in.
+- **The Unicode width table itself.** It is unicode-nv's, and this
+  package holds a rule rather than a table so that a caller measuring
+  in something other than terminal cells can pass its own.
 - **UAX #14 line breaking.** The same table, and a larger algorithm.
   `break_offsets` covers the space and tab cases.
-- **Hyphenation.** Breaking `international` into `inter-` and `national`
-  needs a language, a dictionary and a set of patterns. See rule 13.
+- **Grapheme cluster widths.** A flag is two regional indicators and a
+  family emoji is up to seven codepoints joined by a zero-width joiner,
+  and a terminal places each of those in the cells the first one asked
+  for. `unicode_width` measures per codepoint and gets those wrong.
+  unicode-nv's `uwidth.text_width` and `uwidth.cluster_width` are the
+  ones that segment; there is no `WrapWidth` shape for them, because a
+  cluster is not one codepoint.
+- **Hyphenation.** Breaking `international` into `inter-` and
+  `national` needs a language, a dictionary and a set of patterns. See
+  rule 18.
 - **Justification.** It is padding inserted between words rather than at
   the end of a line, and it needs a policy. `break_offsets` gives a
   justifier what it needs.
@@ -201,9 +233,27 @@ or a status bar is this question and not a wrap.
 - **A microcontroller build.** The whole surface takes and returns
   `Str`, and string concatenation is refused at the embedded tier. This
   package does not build for a microcontroller with no heap allocator.
+  `novo pkg publish` reports the tiers as `wasm, app`.
+
+## What allocates
+
+`wrap`, `fill`, `fill_aligned`, the truncations, `pad`, `indent` and
+`dedent` build strings, and every line they answer is a heap cell.
+`wrap_spans` builds one span per line. That is what they are for.
+
+Measuring does not. `str_width`, `prefix_width`, `fit_prefix`,
+`is_break_char` and the UTF-8 walk under them answer a number over a
+string the caller already holds, and put nothing on the heap. A
+`WrapWidth` is one cell, built once by the function that answers it.
+`bash tests/alloc_scan.sh` reads the emitted LLVM and reports that as a
+check that can fail.
 
 ## Related packages
 
+- [unicode-nv](https://novo-lang.org/packages/unicode-nv) is the
+  Unicode character database: the width table this package's
+  `unicode_width` reads, and also grapheme cluster segmentation,
+  normalisation and case mapping.
 - [tui-nv](https://novo-lang.org/packages/tui-nv) is layout, widgets and
   a cell buffer for a terminal user interface. Its paragraph widget is
   this package's caller, and its layout asks `wrapped_height`.
@@ -223,14 +273,16 @@ or a status bar is this question and not a wrap.
 ## Tests
 
 ```bash
-novo test --isolate tests/wrapping_tests.nv   # 19 tests: wrap, fill, truncate, pad
-novo test --isolate tests/widths_tests.nv     #  7 tests: the width rule
+novo test --isolate tests/wrapping_tests.nv   # 26 tests: wrap, fill, truncate, pad
+novo test --isolate tests/widths_tests.nv     # 10 tests: the width rules
+bash tests/coverage.sh                        # the measured coverage over src/
+bash tests/alloc_scan.sh                      # measuring text puts nothing on the heap
 ```
 
 The expected output comes from the two reference implementations: the
 `textwrap` crate for the options, the long-word policies and `fill` over
 `wrap`, and Python's `textwrap` module for `dedent`, `indent` and the
-blank-line rules.
+blank-line rules. The Unicode cases come from UAX #11.
 
 The cases that matter are the ones a wrap usually gets wrong: that the
 spans are offsets into the source and not into a copy, that an indent's
@@ -239,22 +291,9 @@ ellipsis, that padding never cuts, that a word wider than the line
 behaves as the break policy says, and that `dedent` ignores blank lines
 when it computes the common prefix.
 
-No test reads a file or a clock. The tests compile today and fail at
-run, each on the `not implemented: textwrap-nv.<module>.<fn>` panic that
-is its body. That is the expected state of an interface release. They
-turn green one at a time as bodies land.
-
-## Implementation status
-
-| Item | Implemented |
-| --- | --- |
-| `widths.monospace_width`, `.ascii_width`, `.fixed_width` | no |
-| `widths.char_width`, `.str_width`, `.prefix_width`, `.fit_prefix` | no |
-| `wrapping.default_options`, `.indented_options` | no |
-| `wrapping.wrap_spans`, `.wrap`, `.fill`, `.fill_aligned`, `.wrapped_height` | no |
-| `wrapping.truncate`, `.truncate_middle`, `.pad` | no |
-| `wrapping.indent`, `.dedent` | no |
-| `wrapping.break_offsets`, `.is_break_char` | no |
+No test reads a file or a clock. Every line and every function under
+`src/` is executed by the suites; `bash tests/coverage.sh` prints the
+numbers.
 
 ## Licence
 

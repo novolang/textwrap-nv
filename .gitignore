@@ -1,3 +1,14 @@
+# Build outputs.
 _novo/
-APIDOC.md
+
+# The built package binary — a library package still produces one,
+# because its manifest needs a `main`.
 /textwrap-nv
+
+# Generated from the sources by `novo doc`; a committed copy is a
+# second original.
+APIDOC.md
+
+# Resolved deps.  A library resolves them at the consumer's build, and
+# the file is not on the publish allow-list.
+novo.lock
