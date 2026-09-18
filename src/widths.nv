@@ -1,28 +1,37 @@
 // widths.nv — how many columns a codepoint occupies, as a rule the
 // caller supplies.
 //
-// Every body here is a `todo()`; the signatures are the design.
+// A monospace terminal is a grid of cells.  Most codepoints occupy one
+// cell.  A Chinese, Japanese or Korean ideograph occupies two, and so
+// does an emoji drawn in its wide form.  A combining mark occupies
+// none, because it is drawn on top of the character before it.  The
+// number of cells a codepoint occupies is its display width.
 //
-// WRAPPING IS ABOUT COLUMNS, NOT CHARACTERS.  A monospace terminal
-// gives one cell to most codepoints, two to a CJK ideograph or a
-// wide-presentation emoji, and NONE to a combining mark — so "how many
-// characters fit in 80 columns" has no answer and "how many columns
-// does this text take" has one.  Every function in `wrapping` is
-// written in terms of that answer and none of them can compute it.
+// The display width of a codepoint is a Unicode table: the East Asian
+// Width property of UAX #11 for the wide forms, the general categories
+// Mn, Me and Cf for the zero-width ones, and the emoji presentation
+// rules for the sequences that join.  That table belongs in a Unicode
+// package rather than here, which is why the width arrives as an
+// argument.  A `WrapWidth` is one function from a codepoint to a
+// column count, and `unicode_width()` is unicode-nv's table behind one.
 //
-// THE ANSWER IS A UNICODE TABLE.  UAX #11's East Asian Width property
-// for the wide forms, the general categories Mn, Me and Cf for the
-// zero-width ones, and the emoji presentation rules for the sequences
-// that join.  That is a data table nobody should transcribe twice, and
-// it belongs in unicode-nv — which does not exist yet.
+// Three more rules need no table at all.  `monospace_width` answers 1
+// to everything, `ascii_width` answers 1 to a printable ASCII
+// codepoint and 0 to the rest, and `fixed_width` answers the same
+// number to everything.  A caller measuring in something other than
+// terminal cells, or one that knows its text is ASCII and wants no
+// table linked into its binary, reaches for those.
 //
-// SO THE RULE IS A PARAMETER.  A `WrapWidth` is one function from a
-// codepoint to a column count, `monospace_width()` is the placeholder
-// that answers 1 to everything, and when unicode-nv lands its width
-// function becomes the default with no change to any signature here.
-// That is the whole reason the width is a value rather than something
-// this package computes: a package that had guessed would have to
-// break its callers to stop guessing.
+// Every function here walks text by codepoint rather than by byte.
+// `str.len` and `str.slice` count bytes, a two-byte `é` is one column
+// and a three-byte `世` is two, so a byte count answers none of the
+// questions in this module.  The walk reads the UTF-8 lead byte, takes
+// the sequence it announces when the continuation bytes are there, and
+// takes one byte when they are not.  That is the rule `str.chars`
+// follows, and it keeps a walk over invalid bytes finite.
+
+use std.str
+use uwidth
 
 // WrapWidth is a rule for the display width of one codepoint.
 //
@@ -37,38 +46,207 @@ pub struct WrapWidth
     // and every function here treats one as 0.
     of_char: fn(Int) -> Int
 
+// How many bytes the UTF-8 sequence starting at `at` occupies.
+//
+// One byte for a byte that cannot start a sequence, and one byte for a
+// sequence the string is too short to hold or whose continuation bytes
+// are not continuation bytes.  A walk that takes one byte on a refusal
+// always makes progress, so a scan over arbitrary bytes terminates.
+fn seq_len(text: Str, at: Int) -> Int
+    let lead = str.byte_at_or(text, at, 0)
+    var n = 1
+    if lead >= 0xF0 and lead <= 0xF4
+        n = 4
+    elif lead >= 0xE0 and lead <= 0xEF
+        n = 3
+    elif lead >= 0xC2 and lead <= 0xDF
+        n = 2
+    if at + n > str.len(text)
+        n = 1
+    var bad = false
+    for j in 1..n
+        let c = str.byte_at_or(text, at + j, 0)
+        if c < 0x80 or c > 0xBF
+            bad = true
+    if bad
+        n = 1
+    n
+
+// The codepoint whose UTF-8 encoding starts at byte `at`.
+//
+// The raw byte when the sequence is not valid UTF-8, so a scan over
+// arbitrary bytes still reports something the caller can act on.
+fn cp_at(text: Str, at: Int) -> Int
+    let n = seq_len(text, at)
+    let lead = str.byte_at_or(text, at, 0)
+    if n == 1
+        lead
+    elif n == 2
+        ((lead & 0x1F) << 6) | (str.byte_at_or(text, at + 1, 0) & 0x3F)
+    elif n == 3
+        ((lead & 0x0F) << 12)
+            | ((str.byte_at_or(text, at + 1, 0) & 0x3F) << 6)
+            | (str.byte_at_or(text, at + 2, 0) & 0x3F)
+    else
+        ((lead & 0x07) << 18)
+            | ((str.byte_at_or(text, at + 1, 0) & 0x3F) << 12)
+            | ((str.byte_at_or(text, at + 2, 0) & 0x3F) << 6)
+            | (str.byte_at_or(text, at + 3, 0) & 0x3F)
+
+// The width of the bytes `[from, to)` under a rule.
+//
+// The range form the wrap is written on: a span is a range of the
+// source, and measuring one must not copy it out first.
+fn range_width(w: WrapWidth, text: Str, from: Int, to: Int) -> Int
+    var total = 0
+    var at = from
+    for _ in 0..to - from
+        if at >= to
+            break
+        total = total + char_width(w, cp_at(text, at))
+        at = at + seq_len(text, at)
+    total
+
+// How many bytes of `[from, to)` fit in `columns`.
+//
+// The range form of `fit_prefix`, and the cut the long-word policy
+// takes.  A codepoint that would straddle the edge is left out
+// entirely.
+fn fit_range(w: WrapWidth, text: Str, from: Int, to: Int, columns: Int) -> Int
+    var used = 0
+    var at = from
+    var fits = from
+    for _ in 0..to - from
+        if at >= to
+            break
+        let cw = char_width(w, cp_at(text, at))
+        if used + cw > columns
+            break
+        used = used + cw
+        at = at + seq_len(text, at)
+        fits = at
+    fits
+
+// The byte offset at which the widest suffix of at most `columns`
+// starts.
+//
+// The other half of `fit_prefix`, for a truncation that keeps the end.
+// It walks forward from the start and drops codepoints until what is
+// left fits, so it costs one pass and no list of offsets.
+fn fit_suffix(w: WrapWidth, text: Str, columns: Int) -> Int
+    var left = str_width(w, text)
+    var at = 0
+    for _ in 0..str.len(text)
+        if at >= str.len(text) or left <= columns
+            break
+        left = left - char_width(w, cp_at(text, at))
+        at = at + seq_len(text, at)
+    at
+
+// unicode_width is the display width of UAX #11, from unicode-nv's
+// table.
+//
+// 0 for a combining mark, a zero-width space or a format character, 2
+// for an East Asian Wide or Fullwidth form, and 1 for everything else
+// including the ambiguous class.  It is the rule a terminal is written
+// against, and the one to pass unless the text is known to be ASCII.
+//
+// The ambiguous class is the Greek and Cyrillic letters and a few
+// hundred others, which a terminal configured for a CJK locale draws
+// two cells wide and every other terminal draws one.  Only the program
+// knows which terminal it is talking to, so a caller that needs the
+// other answer builds the rule itself:
+//
+//     let w = WrapWidth { of_char: uwidth.char_width_cjk }
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.unicode_width()
+//     println(str.from_int(widths.str_width(w, "世界")))    // 4
+// ```
+pub fn unicode_width() -> WrapWidth
+    WrapWidth { of_char: unicode_column }
+
+// The rule behind `unicode_width`, named the way the other three are.
+fn unicode_column(ch: Int) -> Int
+    uwidth.char_width(ch)
+
 // monospace_width answers 1 for every codepoint.
 //
-// The placeholder until unicode-nv lands, and correct for text that is
-// entirely ASCII — which is most of what a command-line program wraps.
-// It is wrong for CJK, for combining marks and for emoji, and the
-// wrongness is visible: a wrapped line comes out too long rather than
-// too short, so the failure shows on the screen rather than hiding.
+// Correct for text that is entirely ASCII, which is most of what a
+// command-line program wraps.  It is wrong for CJK, for combining
+// marks and for emoji, and the wrongness is visible: a wrapped line
+// comes out too long rather than too short, so the failure shows on
+// the screen rather than hiding.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.monospace_width()
+//     println(str.from_int(widths.str_width(w, "abc")))    // 3
+// ```
 pub fn monospace_width() -> WrapWidth
-    todo("textwrap-nv.widths.monospace_width")
+    WrapWidth { of_char: one_column }
+
+// The rule behind `monospace_width`, named rather than written at the
+// call site so that the value carries no captured state.
+fn one_column(ch: Int) -> Int
+    1
 
 // ascii_width answers 1 for a printable ASCII codepoint and 0 for
 // everything else.
 //
 // For text that is known ASCII and where a stray control byte should
-// take no space rather than one — a log line, a filename. It is not a
+// take no space rather than one — a log line, a filename.  It is not a
 // substitute for the Unicode rule and does not pretend to be: every
 // codepoint above 126 measures 0, which is only right if there are
 // none.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.ascii_width()
+//     println(str.from_int(widths.char_width(w, 0x41)))      // 1
+//     println(str.from_int(widths.char_width(w, 0x07)))      // 0
+// ```
 pub fn ascii_width() -> WrapWidth
-    todo("textwrap-nv.widths.ascii_width")
+    WrapWidth { of_char: printable_ascii_column }
+
+// The rule behind `ascii_width`.  Space through tilde is the printable
+// range of ASCII.
+fn printable_ascii_column(ch: Int) -> Int
+    if ch >= ' ' and ch <= '~'
+        1
+    else
+        0
 
 // fixed_width answers the same number for every codepoint.
 //
 // For a caller measuring in something other than terminal cells — a
-// proportional font's average advance, a fixed pixel grid. It is here
+// proportional font's average advance, a fixed pixel grid.  It is here
 // because the alternative is that such a caller writes a `WrapWidth`
 // by hand, and a function it can call reads better at the call site.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.fixed_width(2)
+//     println(str.from_int(widths.str_width(w, "abc")))    // 6
+// ```
 pub fn fixed_width(columns: Int) -> WrapWidth
-    todo("textwrap-nv.widths.fixed_width")
+    WrapWidth { of_char: ch => columns }
 
 // char_width is one codepoint's width under a rule, with a negative
 // answer clamped to 0.
+//
+// A rule a caller wrote badly should make text too long rather than
+// negative.  The first is visible on the screen; the second is an
+// index out of range somewhere else.
 //
 // ```novo
 // use widths
@@ -78,33 +256,72 @@ pub fn fixed_width(columns: Int) -> WrapWidth
 //     println(str.from_int(widths.char_width(w, 0x41)))     // 1
 // ```
 pub fn char_width(w: WrapWidth, ch: Int) -> Int
-    todo("textwrap-nv.widths.char_width")
+    let n = w.of_char(ch)
+    if n < 0
+        0
+    else
+        n
 
 // str_width is a whole string's width under a rule.
 //
 // The function a caller reaches for most often — how wide is this, so
-// that a table column or a status bar can be sized. It counts
-// codepoints, so a two-byte `é` measures 1 and a two-column `世`
-// measures 2, which is exactly the difference between this and
-// `str.len`.
+// that a table column or a status bar can be sized.  It counts
+// codepoints, so a two-byte `é` measures 1 under a rule that answers 1
+// for it, which is exactly the difference between this and `str.len`.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.monospace_width()
+//     println(str.from_int(widths.str_width(w, "café")))    // 4
+// ```
 pub fn str_width(w: WrapWidth, text: Str) -> Int
-    todo("textwrap-nv.widths.str_width")
+    range_width(w, text, 0, str.len(text))
 
 // prefix_width is the width of the first `count` codepoints.
 //
 // For a caller walking text it is styling: it needs to know where in
 // columns it has got to, without measuring the whole string again at
-// every step.
+// every step.  A `count` larger than the string is the whole string,
+// and a negative one is nothing.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.monospace_width()
+//     println(str.from_int(widths.prefix_width(w, "abcdef", 2)))    // 2
+// ```
 pub fn prefix_width(w: WrapWidth, text: Str, count: Int) -> Int
-    todo("textwrap-nv.widths.prefix_width")
+    var total = 0
+    var at = 0
+    var seen = 0
+    for _ in 0..str.len(text)
+        if at >= str.len(text) or seen >= count
+            break
+        total = total + char_width(w, cp_at(text, at))
+        at = at + seq_len(text, at)
+        seen = seen + 1
+    total
 
-// fit_prefix is how many BYTES of `text` fit in `columns`.
+// fit_prefix is how many bytes of `text` fit in `columns`.
 //
 // A byte count rather than a codepoint count because that is what a
 // caller slicing the string needs, and because the two differ for
-// every string that is not ASCII. A codepoint that would straddle the
+// every string that is not ASCII.  A codepoint that would straddle the
 // edge is left out entirely — a wide character with one column left
 // does not half-fit — which is what stops a truncation from producing
 // a line one column too long.
+//
+// ```novo
+// use widths
+//
+// fn main() [io]
+//     let w = widths.monospace_width()
+//     let n = widths.fit_prefix(w, "ébc", 2)
+//     println(str.from_int(n))               // 3 bytes, 2 columns
+//     println(str.slice("ébc", 0, n))        // éb
+// ```
 pub fn fit_prefix(w: WrapWidth, text: Str, columns: Int) -> Int
-    todo("textwrap-nv.widths.fit_prefix")
+    fit_range(w, text, 0, str.len(text), columns)

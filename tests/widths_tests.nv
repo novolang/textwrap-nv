@@ -1,19 +1,15 @@
 // widths_tests.nv — the API suite for the width rule.
 //
-// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
-// assertion here reaches `not implemented: textwrap-nv.widths.<fn>`.
 // Run with `--isolate` for one verdict per `@test`.
 //
-// WHAT THESE CASES CAN AND CANNOT ASSERT is the honest boundary of the
-// package as it stands. They assert that the placeholder rules answer
-// what they say they answer, and that `str_width` counts CODEPOINTS
-// rather than bytes — which is a real property and the one every
-// caller depends on. They do not assert that `世` is two columns
-// wide, because nothing here knows that: unicode-nv does, and it does
-// not exist. When it lands, the cases for it go in this file and none
-// of these change.
+// Each case fixes a rule, because the width of a codepoint is the one
+// thing this module does not decide. The three rules that need no
+// table are asserted against what they say they answer. The Unicode
+// rule is asserted against UAX #11: `世` is two cells, a combining
+// acute is none, and `A` is one.
 
 use std.test
+use std.str
 use widths
 
 @test
@@ -102,3 +98,55 @@ fn test_fitting_a_prefix_answers_in_bytes() [io]
 
     test.case("and everything fits in more columns than there are")
     test.assert(widths.fit_prefix(w, "abc", 99) == 3)
+
+@test
+fn test_a_codepoint_is_one_codepoint_whatever_its_length_in_bytes() [io]
+    // The walk reads the UTF-8 lead byte and takes the sequence it
+    // announces, so the unit is the codepoint and never the byte.
+    let w = widths.monospace_width()
+
+    test.case("a three-byte ideograph is one codepoint")
+    test.assert(str.len("世") == 3)
+    test.assert(widths.str_width(w, "世") == 1)
+
+    test.case("and a four-byte emoji is one as well")
+    test.assert(str.len("😀") == 4)
+    test.assert(widths.str_width(w, "😀") == 1)
+
+    test.case("a rule that answers two counts every codepoint twice")
+    test.assert(widths.str_width(widths.fixed_width(2), "世界") == 4)
+
+    test.case("and a prefix wider than the text is all of it, in bytes")
+    test.assert(widths.fit_prefix(w, "éé", 99) == 4)
+
+@test
+fn test_bytes_that_are_not_utf8_are_walked_one_at_a_time() [io]
+    // A walk that takes one byte where the sequence is not there
+    // always makes progress, so a scan over arbitrary bytes ends.
+    let w = widths.monospace_width()
+
+    test.case("a lead byte with nothing after it measures as one")
+    test.assert(widths.str_width(w, str.from_byte(0xE4)) == 1)
+
+    test.case("and a lead byte followed by something that is not a continuation is two")
+    test.assert(widths.str_width(w, str.from_byte(0xC3) + "a") == 2)
+
+@test
+fn test_the_unicode_rule_answers_uax_11() [io]
+    // The rule a terminal is written against, and the one case the
+    // three table-free rules cannot cover.
+    let w = widths.unicode_width()
+
+    test.case("an ideograph is two cells")
+    test.assert(widths.char_width(w, 0x4E16) == 2)
+    test.assert(widths.str_width(w, "世界") == 4)
+
+    test.case("a combining mark is none")
+    test.assert(widths.char_width(w, 0x0301) == 0)
+    test.assert(widths.str_width(w, "é") == 1)
+
+    test.case("and a Latin letter is one")
+    test.assert(widths.char_width(w, 0x41) == 1)
+
+    test.case("a prefix stops where the next codepoint would not fit")
+    test.assert(widths.fit_prefix(w, "世界", 3) == 3)

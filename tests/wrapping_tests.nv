@@ -1,16 +1,18 @@
 // wrapping_tests.nv — the API suite for the wrap, the fill and the
 // truncation.
 //
-// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
-// assertion here reaches `not implemented: textwrap-nv.<module>.<fn>`.
 // Run with `--isolate` for one verdict per `@test`.
 //
-// EVERY CASE FIXES A WIDTH RULE, which is the property the package is
-// for: `monospace_width()` makes the answers exact and repeatable, and
-// a case whose answer depended on a Unicode table nobody has written
-// would be a case that cannot be asserted. When unicode-nv lands, the
-// cases that need it get a rule of their own and these keep their
-// answers.
+// Every case fixes a width rule, which is the property the package is
+// for. `monospace_width()` makes the answers exact and repeatable, and
+// it is the rule almost every case here measures with. The Unicode
+// rule has its own cases in `widths_tests.nv`, where the answers are
+// UAX #11's rather than this package's.
+//
+// The expected output comes from the two reference implementations:
+// the `textwrap` crate for the options, the long-word policies and
+// `fill` over `wrap`, and Python's `textwrap` module for `dedent`,
+// `indent` and the blank-line rules.
 
 use std.test
 use std.list
@@ -36,13 +38,14 @@ fn test_a_wrap_breaks_at_a_word_boundary() [io]
     let out = wrapping.wrap("the quick brown fox", 9, mono(),
                             wrapping.default_options())
 
-    test.case("three lines, none wider than nine columns")
-    test.assert(list.len(out) == 3)
+    test.case("two lines, neither wider than nine columns")
+    test.assert(list.len(out) == 2)
     for line in out
         test.assert(widths.str_width(mono(), line) <= 9)
 
     test.case("and the words are whole")
     test.assert(list.get(out, 0) == "the quick")
+    test.assert(list.get(out, 1) == "brown fox")
 
 @test
 fn test_the_spans_point_back_into_the_source() [io]
@@ -51,8 +54,8 @@ fn test_the_spans_point_back_into_the_source() [io]
     let text = "the quick brown fox"
     let spans = wrapping.wrap_spans(text, 9, mono(), wrapping.default_options())
 
-    test.case("three spans")
-    test.assert(list.len(spans) == 3)
+    test.case("two spans")
+    test.assert(list.len(spans) == 2)
 
     test.case("the first starts at the beginning")
     let first = list.get(spans, 0)
@@ -259,3 +262,142 @@ fn test_a_filled_and_aligned_block_is_a_rectangle() [io]
     test.case("every line is exactly the width")
     for line in str.split(out, "\n")
         test.assert(widths.str_width(mono(), line) == 8)
+
+@test
+fn test_the_whitespace_a_line_ends_with_is_dropped_or_kept() [io]
+    // Trailing spaces on a terminal line are invisible until something
+    // inverts them, so the trim is on; a caller rebuilding the source
+    // turns it off.
+    test.case("trailing whitespace is outside the span by default")
+    let spans = wrapping.wrap_spans("abc  ", 10, mono(), wrapping.default_options())
+    test.assert(list.len(spans) == 1)
+    test.assert(list.get(spans, 0).end == 3)
+    test.assert(list.get(spans, 0).width == 3)
+
+    var opts = wrapping.default_options()
+    opts.trim_trailing = false
+
+    test.case("and inside it when the trim is off")
+    let kept = wrapping.wrap_spans("abc  ", 10, mono(), opts)
+    test.assert(list.get(kept, 0).end == 5)
+    test.assert(list.get(kept, 0).width == 5)
+
+    test.case("the space a line was broken at stays on the line before it")
+    let broken = wrapping.wrap_spans("aaa bbb", 3, mono(), opts)
+    test.assert(list.len(broken) == 2)
+    test.assert(list.get(broken, 0).end == 4)
+    test.assert(list.get(broken, 1).start == 4)
+
+@test
+fn test_a_wrap_measures_codepoints_and_answers_in_bytes() [io]
+    // The span is a byte range and the width is a column count, and
+    // for text that is not ASCII those are two different numbers.
+    let opts = wrapping.default_options()
+
+    test.case("three codepoints, three columns, six bytes")
+    let spans = wrapping.wrap_spans("ééé", 10, mono(), opts)
+    test.assert(list.len(spans) == 1)
+    test.assert(list.get(spans, 0).end == 6)
+    test.assert(list.get(spans, 0).width == 3)
+    test.assert(list.get(wrapping.wrap("ééé", 10, mono(), opts), 0) == "ééé")
+
+    test.case("the policy that never breaks keeps the whitespace when asked to")
+    var raw = wrapping.default_options()
+    raw.break_rule = WrapNoBreak
+    raw.trim_trailing = false
+    let untrimmed = wrapping.wrap_spans("ééé ", 2, mono(), raw)
+    test.assert(list.get(untrimmed, 0).end == 7)
+    test.assert(list.get(untrimmed, 0).width == 4)
+
+    test.case("and the policy that never breaks counts them the same way")
+    var whole = wrapping.default_options()
+    whole.break_rule = WrapNoBreak
+    let line = wrapping.wrap_spans("ééé ", 2, mono(), whole)
+    test.assert(list.len(line) == 1)
+    test.assert(list.get(line, 0).end == 6)
+    test.assert(list.get(line, 0).width == 3)
+
+@test
+fn test_breaking_a_long_word_makes_progress_with_no_room_at_all() [io]
+    // A cut that fitted nothing would cut nothing and go round again,
+    // so one codepoint goes on the line whatever the rule answers.
+    var opts = wrapping.default_options()
+    opts.break_rule = WrapBreakLongWords
+    let out = wrapping.wrap("abc", 1, widths.fixed_width(2), opts)
+
+    test.case("three lines, one codepoint each")
+    test.assert(list.len(out) == 3)
+    test.assert(list.get(out, 0) == "a")
+    test.assert(list.get(out, 1) == "b")
+    test.assert(list.get(out, 2) == "c")
+
+@test
+fn test_a_truncation_with_no_room_for_its_ellipsis() [io]
+    // The result is never wider than `columns`, so an ellipsis that
+    // does not fit is not appended at all.
+    test.case("an ellipsis at least as wide as the field leaves only text")
+    test.assert(wrapping.truncate("abcdef", 2, mono(), "...") == "ab")
+    test.assert(wrapping.truncate_middle("abcdef", 2, mono(), "...") == "ab")
+
+    test.case("a field of no columns holds nothing")
+    test.assert(wrapping.truncate("abc", 0, mono(), "...") == "")
+    test.assert(wrapping.truncate_middle("abc", 0, mono(), "...") == "")
+
+    test.case("and text that already fits comes back from both unchanged")
+    test.assert(wrapping.truncate_middle("abc", 6, mono(), "...") == "abc")
+
+@test
+fn test_collapsing_whitespace_is_off_until_the_caller_asks() [io]
+    // Collapsing rewrites the text rather than only breaking it, so
+    // the functions that build strings do it and `wrap_spans`, whose
+    // answers are ranges of the text it was given, does not.
+    var opts = wrapping.default_options()
+    opts.collapse_whitespace = true
+
+    test.case("a run of spaces inside a line becomes one space")
+    test.assert(wrapping.fill("a   b", 20, mono(), opts) == "a b")
+
+    test.case("a tab is whitespace too")
+    test.assert(wrapping.fill("a\tb", 20, mono(), opts) == "a b")
+
+    test.case("a newline still ends a line")
+    test.assert(wrapping.fill("a  \n  b", 20, mono(), opts) == "a\n b")
+
+    test.case("and a codepoint of more than one byte survives the collapse")
+    test.assert(wrapping.fill("é  é", 20, mono(), opts) == "é é")
+
+    test.case("the height agrees with the lines it did not build")
+    test.assert(wrapping.wrapped_height("a  \n  b", 20, mono(), opts) == 2)
+
+    test.case("and the spans still point into the text they were given")
+    let spans = wrapping.wrap_spans("a   b", 20, mono(), opts)
+    test.assert(list.len(spans) == 1)
+    test.assert(list.get(spans, 0).end == 5)
+
+@test
+fn test_dedent_shares_nothing_between_a_tab_and_a_space() [io]
+    // The common prefix is compared byte by byte, and a tab is not a
+    // run of spaces.
+    test.case("two lines indented differently keep what they have")
+    test.assert(wrapping.dedent("\ta\n  b") == "\ta\n  b")
+
+@test
+fn test_the_break_opportunities_include_a_hyphen_when_asked() [io]
+    var opts = wrapping.default_options()
+    opts.split_on_hyphens = true
+
+    test.case("the offset is the one just after the hyphen")
+    let offsets = wrapping.break_offsets("well-behaved", opts)
+    test.assert(list.len(offsets) == 1)
+    test.assert(list.get(offsets, 0) == 5)
+
+    test.case("a codepoint of more than one byte is stepped over whole")
+    test.assert(list.len(wrapping.break_offsets("é é", wrapping.default_options())) == 1)
+
+    test.case("a Unicode space separator is a break opportunity")
+    test.assert(wrapping.is_break_char(0x2000))
+    test.assert(wrapping.is_break_char(0x3000))
+
+    test.case("and the spaces a line may not be broken at are not")
+    test.assert(wrapping.is_break_char(0x2007) == false)
+    test.assert(wrapping.is_break_char(0xA0) == false)

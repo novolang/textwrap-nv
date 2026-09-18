@@ -1,14 +1,9 @@
 [package]
 name        = "textwrap-nv"
 version     = "0.0.2"
-description = "Wrapping, filling and truncating text at a DISPLAY width rather than a character count: the break policy as a named choice, indents that differ on the first line, an ellipsis that fits, and the wrap returning byte offsets so styled text survives it.  The width of a codepoint arrives as a rule the caller supplies, because unicode-nv is not on the registry yet.  Interface only — every body is a todo()."
+description = "Wrapping, filling and truncating text at a DISPLAY width rather than a character count: the break policy as a named choice, indents that differ on the first line, an ellipsis that fits, and the wrap returning byte offsets so styled text survives it.  The width of a codepoint arrives as a rule the caller supplies, because unicode-nv is not on the registry yet."
 license     = "Apache-2.0"
 
-# An INTERFACE release: every `pub fn` body is a `todo()`, so the
-# signatures and the effect rows are published and nothing is
-# implemented.  `novo pkg publish` recognises the shape and requires
-# both the draft stability and the 0.0.x version; the first
-# implementation is the 0.1.0 published over it.
 stability   = "draft"
 
 # `core`: text in, text out, and the one thing that is not arithmetic —
@@ -20,7 +15,7 @@ category    = "terminal"
 tags        = ["textwrap", "wrap", "fill", "truncate", "word-wrap", "display-width", "terminal", "unicode"]
 repository  = "https://github.com/novolang/textwrap-nv"
 maintainers = ["novo-lang"]
-novo        = ">= 0.8.9"
+novo        = ">= 0.9.1"
 
 # A library: no `main`, so `novo pkg build` type-checks and
 # effect-checks every module under `src/` and writes no binary.
@@ -29,17 +24,11 @@ novo        = ">= 0.8.9"
 "README.md" = "Wrapping text at a display width"
 
 [dependencies]
-# NONE, AND THE ABSENCE IS THE DESIGN.  This package wants unicode-nv —
-# the display width of a codepoint is a Unicode table (UAX #11's East
-# Asian Width, plus the zero-width marks and the emoji presentation
-# rules) and not arithmetic anyone should transcribe twice.  unicode-nv
-# is a plan row nobody has written, and a dependency on a package that
-# is not on the registry is refused at publish and would send every
-# consumer to a version that does not exist.
-#
-# So the width arrives as a `WrapWidth` the caller supplies, and
-# `monospace_width()` is the placeholder that treats every codepoint as
-# one column.  When unicode-nv lands, its width function becomes the
-# default and this entry becomes `unicode-nv = "^0.0.1"` — a MINOR bump
-# with a changelog line, and no change to any signature here, because
-# a rule passed in is a rule passed in.
+# unicode-nv carries the table this package cannot hold.  The display
+# width of a codepoint is UAX #11's East Asian Width property, plus the
+# general categories Mn, Me and Cf for the zero-width ones, and that is
+# a data table nobody should transcribe twice.  `uwidth.char_width` is
+# the `fn(Int) -> Int` a `WrapWidth` holds, so `widths.unicode_width()`
+# is one line over it and no signature here is shaped by the
+# dependency.
+unicode-nv = "^0.1.0"
