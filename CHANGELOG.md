@@ -5,6 +5,24 @@ All notable changes to textwrap-nv are recorded here. The format is
 package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 with the pre-1.0 rule that a breaking change bumps the MINOR number.
 
+## 0.1.1 — 2026-09-24
+
+The package builds under the list rule of the next toolchain, where a
+list is one list under every name that holds it and a write into it
+goes through a `var` name.  No public signature changed, and nothing
+changes under 0.9.2.
+
+### Changed
+
+- The private step that wraps a line with no break policy takes the
+  spans gathered so far as a `mut` parameter, which is the spelling
+  `novo fmt` gives the `var` marker, and pushes the new span onto that
+  list.
+- The greedy wrap pushes its last span in a statement of its own and
+  then answers the list.
+- Under the next toolchain the package also needs unicode-nv 0.1.1,
+  which `^0.1.0` admits.
+
 ## 0.1.0 — 2026-09-18
 
 The wrap, the fill, the truncations and the two indent functions, over a

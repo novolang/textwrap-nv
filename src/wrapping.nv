@@ -197,17 +197,18 @@ fn content_end(text: Str, lo: Int, hi: Int) -> Int
 
 // One span covering the whole input line, for `WrapNoBreak`.
 fn whole_line(text: Str, lo: Int, hi: Int, w: widths.WrapWidth, opts: WrapOptions,
-              taken: [WrapSpan]) -> [WrapSpan]
+              mut taken: [WrapSpan]) -> [WrapSpan]
     let stop = if opts.trim_trailing
         content_end(text, lo, hi)
     else
         hi
     let first = list.is_empty(taken)
-    list.push(taken, WrapSpan {
+    taken = list.push(taken, WrapSpan {
         start: lo,
         end: stop,
         width: widths.range_width(w, text, lo, stop),
         is_first: first })
+    taken
 
 // The greedy wrap of one input line `[lo, hi)`, appended to `taken`.
 //
@@ -313,7 +314,8 @@ fn wrap_segment(text: Str, lo: Int, hi: Int, columns: Int, w: widths.WrapWidth, 
         seg_width
     else
         seg_width + gap_width
-    list.push(out, WrapSpan { start: seg_start, end: stop, width: kept, is_first: last })
+    out = list.push(out, WrapSpan { start: seg_start, end: stop, width: kept, is_first: last })
+    out
 
 // wrap_spans breaks text into lines that fit `columns`, as ranges of
 // the source.
