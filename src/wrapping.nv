@@ -197,7 +197,7 @@ fn content_end(text: Str, lo: Int, hi: Int) -> Int
 
 // One span covering the whole input line, for `WrapNoBreak`.
 fn whole_line(text: Str, lo: Int, hi: Int, w: widths.WrapWidth, opts: WrapOptions,
-              mut taken: [WrapSpan]) -> [WrapSpan]
+              var taken: [WrapSpan]) -> [WrapSpan]
     let stop = if opts.trim_trailing
         content_end(text, lo, hi)
     else
@@ -218,7 +218,7 @@ fn whole_line(text: Str, lo: Int, hi: Int, w: widths.WrapWidth, opts: WrapOption
 // keeps the input line's own indentation and drops the whitespace at
 // every later break.
 fn wrap_segment(text: Str, lo: Int, hi: Int, columns: Int, w: widths.WrapWidth, opts: WrapOptions,
-                taken: [WrapSpan]) -> [WrapSpan]
+                var taken: [WrapSpan]) -> [WrapSpan]
     var out = taken
     var seg_start = lo
     var seg_end = lo
@@ -363,7 +363,7 @@ pub fn wrap_spans(text: Str, columns: Int, w: widths.WrapWidth, opts: WrapOption
 
 // One input line, wrapped by the policy the options name.
 fn segment_spans(text: Str, lo: Int, hi: Int, columns: Int, w: widths.WrapWidth, opts: WrapOptions,
-                 taken: [WrapSpan]) -> [WrapSpan]
+                 var taken: [WrapSpan]) -> [WrapSpan]
     match opts.break_rule
         WrapNoBreak => whole_line(text, lo, hi, w, opts, taken)
         _           => wrap_segment(text, lo, hi, columns, w, opts, taken)

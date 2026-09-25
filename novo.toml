@@ -1,6 +1,6 @@
 [package]
 name        = "textwrap-nv"
-version     = "0.1.1"
+version     = "0.1.2"
 description = "Wrapping, filling and truncating text at a display width rather than a character count: the break policy as a named choice, indents that differ on the first line, an ellipsis that counts itself, and a wrap that answers byte offsets so styled text survives it.  The width of a codepoint is unicode-nv's UAX #11 table, or any other rule the caller hands in."
 license     = "Apache-2.0"
 

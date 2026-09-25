@@ -5,6 +5,14 @@ All notable changes to textwrap-nv are recorded here. The format is
 package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 with the pre-1.0 rule that a breaking change bumps the MINOR number.
 
+## 0.1.2 — 2026-09-25
+
+Two private helpers of the wrap take the list of lines they append to
+as `var`.  They always appended to the list they were given.  The next
+Novo release accepts a write into a list only through a name declared
+`var`, and refuses a writable name made from a plain parameter.  No
+public signature changed, and every answer is what 0.1.1 gave.
+
 ## 0.1.1 — 2026-09-24
 
 The package builds under the list rule of the next toolchain, where a
